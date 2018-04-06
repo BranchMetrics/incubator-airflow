@@ -87,6 +87,7 @@ from airflow.utils.trigger_rule import TriggerRule
 from airflow.utils.weight_rule import WeightRule
 from airflow.utils.net import get_hostname
 from airflow.utils.log.logging_mixin import LoggingMixin
+from airflow.configuration import conf, mkdir_p
 
 install_aliases()
 
@@ -131,6 +132,7 @@ def clear_task_instances(tis, session, activate_dag_runs=True, dag=None):
                 ti.state = State.SHUTDOWN
                 job_ids.append(ti.job_id)
         else:
+
             task_id = ti.task_id
             if dag and dag.has_task(task_id):
                 task = dag.get_task(task_id)
@@ -201,6 +203,7 @@ class DagBag(BaseDagBag, LoggingMixin):
         self.file_last_changed = {}
         self.executor = executor
         self.import_errors = {}
+        self._s3_dag_counter = -1
 
         if include_examples:
             example_dag_folder = os.path.join(
@@ -280,6 +283,9 @@ class DagBag(BaseDagBag, LoggingMixin):
                     if not all([s in content for s in (b'DAG', b'airflow')]):
                         self.file_last_changed[filepath] = file_last_changed_on_disk
                         return found_dags
+            if '__s3_dags__' in filepath:
+                fileloc = filepath.split('__s3_dags__/')[-1]
+                self.get_s3_dags(force=True, fileloc=fileloc)
 
             self.log.debug("Importing %s", filepath)
             org_mod_name, _ = os.path.splitext(os.path.split(filepath)[-1])
@@ -422,6 +428,67 @@ class DagBag(BaseDagBag, LoggingMixin):
                         del self.dags[subdag.dag_id]
             raise cycle_exception
 
+    def get_s3_dags(self, force=False, fileloc=None):
+        """
+        If an s3_dags_folder was provided, this function will recursively
+        download any '.py' files found there to {DAGS_FOLDER}/__s3_dags__/,
+        where they will become available to airflow.
+        If force is True, the S3 dags will be refreshed; otherwise they are
+        refreshed every 10th time this function is called.
+        If fileloc is provided, only dags at that specific location will be
+        checked. Fileloc should be relative to
+        {DAGS_FOLDER}/__s3_dags__/{FILELOC}; in other words, it corresponds to
+        the part of the directory structured mirrored from S3 (every part of
+        the s3_dag_folder except the bucket name).
+        """
+        refresh_every = 10
+        self._s3_dag_counter += 1
+        if not force and self._s3_dag_counter % refresh_every != 0:
+            return
+
+        # create necessary directories
+        s3_dag_folder = os.path.join(
+            conf.get('core', 'dags_folder'), '__s3_dags__')
+
+        mkdir_p(s3_dag_folder)
+
+        logging.info('Retrieving DAGs from S3...')
+
+        # use airflow S3Hook and Connection
+        from airflow.hooks.S3_hook import S3Hook
+        from  boto.utils import parse_ts
+        s3_hook = S3Hook(conf.get('core', 's3_dags_folder_conn_id'))
+        bucket, prefix = s3_hook._parse_s3_url(
+            conf.get('core', 's3_dags_folder'))
+        if fileloc:
+            prefix = fileloc
+
+        # download keys if they are new or modified later than local version
+        keys = s3_hook.list_keys(bucket, prefix, return_names=False)
+        for key in keys:
+            if key.name.endswith('.py'):
+                filename = os.path.join(s3_dag_folder, key.name)
+                if os.path.exists(filename):
+                    key_mtime = parse_ts(key.last_modified).timestamp()
+                    if os.path.getmtime(filename) >= key_mtime:
+                        continue
+                mkdir_p(os.path.dirname(filename))
+                key.get_contents_to_filename(filename)
+
+        if fileloc:
+            return
+
+        # remove any files that aren't in the key list
+        key_names = [os.path.join(s3_dag_folder, key.name) for key in keys]
+        for root, dirs, files in os.walk(s3_dag_folder):
+            for f in files:
+                full_f = os.path.join(root, f)
+                if full_f not in key_names:
+                    os.remove(full_f)
+                    try:
+                        os.removedirs(root)
+                    except:
+                        pass
 
     def collect_dags(
             self,
@@ -443,6 +510,8 @@ class DagBag(BaseDagBag, LoggingMixin):
         stats = []
         FileLoadStat = namedtuple(
             'FileLoadStat', "file duration dag_num task_num dags")
+        if conf.get('core', 's3_dags_folder'):
+            self.get_s3_dags()
         if os.path.isfile(dag_folder):
             self.process_file(dag_folder, only_if_updated=only_if_updated)
         elif os.path.isdir(dag_folder):
