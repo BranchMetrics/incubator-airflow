@@ -275,7 +275,6 @@ class DagBag(BaseDagBag, LoggingMixin):
                         return found_dags
             if '__s3_dags__' in filepath:
                 fileloc = filepath.split('__s3_dags__/')[-1]
-                print("!!!!!1 calling get_s3_dags")
                 self.get_s3_dags(force=True, fileloc=fileloc)
 
             self.log.debug("Importing %s", filepath)
