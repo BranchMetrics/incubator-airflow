@@ -275,6 +275,7 @@ class DagBag(BaseDagBag, LoggingMixin):
                         return found_dags
             if '__s3_dags__' in filepath:
                 fileloc = filepath.split('__s3_dags__/')[-1]
+                print("!!!!!1 calling get_s3_dags")
                 self.get_s3_dags(force=True, fileloc=fileloc)
 
             self.log.debug("Importing %s", filepath)
@@ -427,43 +428,19 @@ class DagBag(BaseDagBag, LoggingMixin):
 
         # download keys if they are new or modified later than local version
         keys = s3_hook.list_keys(bucket, prefix)
-        import boto3
-        s3_bucket = boto3.resource('s3').Bucket(bucket)
-        for key in s3_bucket.objects.all():
-            print(key.key)
-            if key.key.endswith('.py'):
-                filename = os.path.join(s3_dag_folder, key.key)
-                if os.path.exists(filename):
-                    print("file exists. ok")
-                    import time
-                    key_mtime = time.mktime(
-                        key.last_modified.timetuple())
-                    print("local file time" + str(os.path.getmtime(filename)))
-                    print("remote file time" + str(key_mtime))
-                    if os.path.getmtime(filename) >= key_mtime:
-                        print("file is latest")
-                        continue
-                print("file is not latest or does not exist")
-                print("created file again. Starting downloading file")
-                print("filename" + str(filename))
-                print("key.key" + str(key.key))
-                s3_client = boto3.client('s3')
-                with open(filename, "wb") as f:
-                    #s3_bucket.download_fileobj(bucket, key.key, f)
-                    s3_client.download_fileobj("airflow-s3-dags", key.key, f)
-                # with open("/Users/averma/airflow/dags/__s3_dags__/tutorial.py", "wb") as f:
-                #     s3_client.download_fileobj("airflow-s3-dags", "tutorial.py", f)
-                print("file download done")
-                # except botocore.exceptions.ClientError as e:
-                #     if e.response['Error']['Code'] == "404":
-                #         print("The object does not exist.")
-                #     else:
-                #         raise
+        for key in keys:
+            filename = os.path.join(s3_dag_folder, key)
+            key_obj = s3_hook.get_key(key, bucket)
+            with open(filename, 'wb') as data:
+                key_obj.download_fileobj(data)
+            print("file download done for"+str(key))
+
+
         if fileloc:
             return
 
-        # remove any files that aren't in the key list
-        key_names = [os.path.join(s3_dag_folder, key.key) for key in keys]
+        #remove any files that aren't in the key list
+        key_names = [os.path.join(s3_dag_folder, key) for key in keys]
         for root, dirs, files in os.walk(s3_dag_folder):
             for f in files:
                 full_f = os.path.join(root, f)
