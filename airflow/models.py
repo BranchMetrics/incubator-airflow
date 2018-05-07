@@ -428,7 +428,7 @@ class DagBag(BaseDagBag, LoggingMixin):
                         del self.dags[subdag.dag_id]
             raise cycle_exception
 
-    def get_s3_dags(self, force=False, fileloc=None):
+    def get_s3_dags(self, force=False, fileloc=None,  refresh_every = 5):
         """
         If an s3_dags_folder was provided, this function will recursively
         download any '.py' files found there to {DAGS_FOLDER}/__s3_dags__/,
@@ -441,7 +441,6 @@ class DagBag(BaseDagBag, LoggingMixin):
         the part of the directory structured mirrored from S3 (every part of
         the s3_dag_folder except the bucket name).
         """
-        refresh_every = 10
         self._s3_dag_counter += 1
         if not force and self._s3_dag_counter % refresh_every != 0:
             return
@@ -511,7 +510,7 @@ class DagBag(BaseDagBag, LoggingMixin):
         FileLoadStat = namedtuple(
             'FileLoadStat', "file duration dag_num task_num dags")
         if conf.get('core', 's3_dags_folder'):
-            self.get_s3_dags()
+            self.get_s3_dags(refresh_every = 10)
         if os.path.isfile(dag_folder):
             self.process_file(dag_folder, only_if_updated=only_if_updated)
         elif os.path.isdir(dag_folder):
