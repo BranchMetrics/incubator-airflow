@@ -391,7 +391,7 @@ class DagBag(BaseDagBag, LoggingMixin):
             self.bag_dag(subdag, parent_dag=dag, root_dag=root_dag)
         self.log.debug('Loaded DAG {dag}'.format(**locals()))
 
-    def get_s3_dags(self, force=False, fileloc=None):
+    def get_s3_dags(self, force=False, fileloc=None,  refresh_every = 20):
         """
         If an s3_dags_folder was provided, this function will recursively
         download any '.py' files found there to {DAGS_FOLDER}/__s3_dags__/,
@@ -404,7 +404,7 @@ class DagBag(BaseDagBag, LoggingMixin):
         the part of the directory structured mirrored from S3 (every part of
         the s3_dag_folder except the bucket name).
         """
-        refresh_every = 10
+
         self._s3_dag_counter += 1
         if not force and self._s3_dag_counter % refresh_every != 0:
             return
@@ -422,33 +422,40 @@ class DagBag(BaseDagBag, LoggingMixin):
         s3_hook = S3Hook(conf.get('core', 's3_dags_folder_conn_id'))
         bucket, prefix = s3_hook.parse_s3_url(
             conf.get('core', 's3_dags_folder'))
+        self.log.info("bucket, prefix")
+        self.log.info(bucket)
+        self.log.info(prefix)
         if fileloc:
             prefix = fileloc
 
         # download keys if they are new or modified later than local version
         keys = s3_hook.list_keys(bucket, prefix)
+        self.log.info("all keys in s3")
+        self.log.info(keys)
         for key in keys:
-            filename = os.path.join(s3_dag_folder, key)
-            key_obj = s3_hook.get_key(key, bucket)
-            with open(filename, 'wb') as data:
-                key_obj.download_fileobj(data)
-            print("file download done for"+str(key))
+            if key.endswith('.py'):
+                self.log.info("key")
+                self.log.info(key)
+                filename = os.path.join(s3_dag_folder, os.path.basename(key)) # key: dags/example_branch_operator.py
+                self.log.info("filename")
+                self.log.info(filename)
+                key_obj = s3_hook.get_key(key, bucket)
+                if os.path.exists(filename):
+                    self.log.info("FILE EXISTS")
+                    self.log.info(filename)
+                    local_last_modify_time = os.path.getmtime(filename)
+                    s3_last_modify_time = key_obj.last_modified.strftime('%s')# this returns the seconds from epoch
+                    self.log.info("s3 timestamp")
+                    self.log.info(int(s3_last_modify_time))
+                    self.log.info("local timestamp")
+                    self.log.info(int(local_last_modify_time))
+                    if int(local_last_modify_time) >= int(s3_last_modify_time):
+                        continue
 
+                with open(filename, 'wb') as data:
+                    key_obj.download_fileobj(data)
+                    self.log.info("file download done for"+str(key))
 
-        if fileloc:
-            return
-
-        #remove any files that aren't in the key list
-        key_names = [os.path.join(s3_dag_folder, key) for key in keys]
-        for root, dirs, files in os.walk(s3_dag_folder):
-            for f in files:
-                full_f = os.path.join(root, f)
-                if full_f not in key_names:
-                    os.remove(full_f)
-                    try:
-                        os.removedirs(root)
-                    except:
-                        pass
 
 
     def collect_dags(
@@ -472,7 +479,7 @@ class DagBag(BaseDagBag, LoggingMixin):
         FileLoadStat = namedtuple(
             'FileLoadStat', "file duration dag_num task_num dags")
         if conf.has_option('core', 's3_dags_folder') and conf.get('core', 's3_dags_folder'):
-            self.get_s3_dags()
+            self.get_s3_dags(refresh_every = 20)
         if os.path.isfile(dag_folder):
             self.process_file(dag_folder, only_if_updated=only_if_updated)
         elif os.path.isdir(dag_folder):
