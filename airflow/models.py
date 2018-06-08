@@ -431,12 +431,12 @@ class DagBag(BaseDagBag, LoggingMixin):
         for key in keys:
             if key.endswith('.py'):
 
-                filename = os.path.join(s3_dag_folder, os.path.basename(key)) # key: dags/example_branch_operator.py
+                filename = os.path.join(s3_dag_folder, os.path.basename(key))
                 self.log.info("found DAG %s" % (filename))
                 key_obj = s3_hook.get_key(key, bucket)
                 if os.path.exists(filename):
                     local_last_modify_time = os.path.getmtime(filename)
-                    s3_last_modify_time = key_obj.last_modified.strftime('%s')# this returns the seconds from epoch
+                    s3_last_modify_time = key_obj.last_modified.strftime('%s')
                     if int(local_last_modify_time) >= int(s3_last_modify_time):
                         continue
                     self.log.info("For DAG file %s, local file's last modified timestamp is %s. Last modified timestamp in S3"
