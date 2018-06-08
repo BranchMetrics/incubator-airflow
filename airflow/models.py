@@ -422,41 +422,28 @@ class DagBag(BaseDagBag, LoggingMixin):
         s3_hook = S3Hook(conf.get('core', 's3_dags_folder_conn_id'))
         bucket, prefix = s3_hook.parse_s3_url(
             conf.get('core', 's3_dags_folder'))
-        self.log.info("bucket, prefix")
-        self.log.info(bucket)
-        self.log.info(prefix)
+
         if fileloc:
             prefix = fileloc
 
         # download keys if they are new or modified later than local version
         keys = s3_hook.list_keys(bucket, prefix)
-        self.log.info("all keys in s3")
-        self.log.info(keys)
         for key in keys:
             if key.endswith('.py'):
-                self.log.info("key")
-                self.log.info(key)
+
                 filename = os.path.join(s3_dag_folder, os.path.basename(key)) # key: dags/example_branch_operator.py
-                self.log.info("filename")
-                self.log.info(filename)
+                self.log.info("found DAG %s" % (filename))
                 key_obj = s3_hook.get_key(key, bucket)
                 if os.path.exists(filename):
-                    self.log.info("FILE EXISTS")
-                    self.log.info(filename)
                     local_last_modify_time = os.path.getmtime(filename)
                     s3_last_modify_time = key_obj.last_modified.strftime('%s')# this returns the seconds from epoch
-                    self.log.info("s3 timestamp")
-                    self.log.info(int(s3_last_modify_time))
-                    self.log.info("local timestamp")
-                    self.log.info(int(local_last_modify_time))
                     if int(local_last_modify_time) >= int(s3_last_modify_time):
                         continue
-
+                    self.log.info("For DAG file %s, local file's last modified timestamp is %s. Last modified timestamp in S3"
+                                  " is %s. Starting download.." % (filename, local_last_modify_time, s3_last_modify_time))
                 with open(filename, 'wb') as data:
                     key_obj.download_fileobj(data)
                     self.log.info("file download done for"+str(key))
-
-
 
     def collect_dags(
             self,
