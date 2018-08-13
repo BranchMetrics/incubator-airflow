@@ -103,6 +103,7 @@ class KubernetesPodOperator(BaseOperator):
             pod.secrets = self.secrets
             pod.envs = self.env_vars
             pod.image_pull_policy = self.image_pull_policy
+            pod.image_pull_secrets = self.image_pull_secrets
             pod.annotations = self.annotations
             pod.resources = self.resources
             pod.affinity = self.affinity
@@ -139,6 +140,7 @@ class KubernetesPodOperator(BaseOperator):
                  startup_timeout_seconds=120,
                  get_logs=True,
                  image_pull_policy='IfNotPresent',
+                 image_pull_secrets='',
                  annotations=None,
                  resources=None,
                  affinity=None,
@@ -162,6 +164,7 @@ class KubernetesPodOperator(BaseOperator):
         self.cluster_context = cluster_context
         self.get_logs = get_logs
         self.image_pull_policy = image_pull_policy
+        self.image_pull_secrets = image_pull_secrets
         self.annotations = annotations or {}
         self.affinity = affinity or {}
         self.xcom_push = xcom_push
